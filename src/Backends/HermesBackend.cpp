@@ -54,6 +54,7 @@ extern int g_nPreferredOutputWidth;
 extern int g_nPreferredOutputHeight;
 
 extern gamescope::ConVar<bool> cv_hdr_enabled;
+extern gamescope::ConVar<bool> cv_adaptive_sync_idle_hold;
 
 // The socket path from --hermes-socket, before $GAMESCOPE_HERMES_SOCKET and the default.
 const char *g_pszHermesSocketPath = nullptr;
@@ -61,6 +62,8 @@ const char *g_pszHermesSocketPath = nullptr;
 namespace gamescope
 {
 	static LogScope hermes_log( "hermes" );
+
+	static ConVar<bool> cv_hermes_composite_on_commit( "hermes_composite_on_commit", true, "Composite a stream frame as soon as the game's frame is ready, not on a refresh timer." );
 
 	namespace
 	{
@@ -314,9 +317,11 @@ namespace gamescope
 		{
 			return m_HDRInfo;
 		}
+		// A stream has no scanout to wait for, so paint as adaptive sync would: when
+		// a frame is ready, at most once per refresh.
 		virtual bool IsVRRActive() const override
 		{
-			return false;
+			return cv_hermes_composite_on_commit;
 		}
 		virtual std::span<const BackendMode> GetModes() const override
 		{
@@ -424,6 +429,9 @@ namespace gamescope
 
 		virtual bool Init() override
 		{
+			// It only keeps a real panel from flickering; here it would encode repeats.
+			cv_adaptive_sync_idle_hold = false;
+
 			g_nOutputWidth = g_nPreferredOutputWidth;
 			g_nOutputHeight = g_nPreferredOutputHeight;
 			g_nOutputRefresh = g_nNestedRefresh;
@@ -694,6 +702,8 @@ namespace gamescope
 		uint64_t m_ulStateGeneration = 0;
 		bool m_bStateHDRActive = false;
 		uint64_t m_ulFrameId = 0;
+		uint64_t m_ulLastPaint = 0;
+		double m_flPaintTokens = 0.0;
 
 		// Guards the pending config and slot ownership.
 		std::mutex m_StateMutex;
@@ -811,6 +821,22 @@ namespace gamescope
 			: vulkan_composite( &frameInfo, nullptr, false, pTarget, true, nullptr, m_pSyncSemaphore );
 
 		const uint64_t ulSubmitTime = get_time_in_nanos();
+
+		// This paint is the stream's vblank. A token bucket keeps the long-term rate at
+		// the refresh; spare tokens let a paint come up to 1/8 refresh early, so a game at
+		// the refresh rate slides into phase instead of waiting out a fixed grid forever.
+		if ( m_Connector.IsVRRActive() )
+		{
+			const uint64_t ulInterval = mHzToRefreshCycle( GetVBlankTimer().GetRefresh() );
+			const double flElapsed = double( ulSubmitTime - m_ulLastPaint ) / double( ulInterval );
+			m_ulLastPaint = ulSubmitTime;
+			m_flPaintTokens = std::min( m_flPaintTokens + flElapsed, 2.0 ) - 1.0;
+
+			const uint64_t ulWait = std::max( ulInterval - ulInterval / 8, uint64_t( std::max( 1.0 - m_flPaintTokens, 0.0 ) * double( ulInterval ) ) );
+			// IsVRRFlipReady compares against the last vblank + interval - wakeup offset.
+			GetVBlankTimer().UpdateLastDrawTime( ulSubmitTime - g_SteamCompMgrVBlankTime.ulWakeupTime );
+			GetVBlankTimer().MarkVBlank( ulSubmitTime + ulWait + GetVBlankTimer().VRRWakeupOffset() - ulInterval, true );
+		}
 
 		if ( !oSequence )
 		{

@@ -125,6 +125,10 @@ gamescope --backend hermes --hermes-socket "$XDG_RUNTIME_DIR/hermes-1.sock" \
      stall the game.
   4. `CONFIGURE` may be sent again at any time to change the mode. With
      `RESIZE_NESTED`, the game's own screen is resized as well.
+- **Pacing.** A stream has no scanout to wait for, so Gamescope composites as
+  soon as the game's frame is ready, using its adaptive sync path, capped at the
+  refresh rate on average. `gamescope_hermes_composite_on_commit=false` in the
+  environment goes back to a fixed refresh timer, to compare the two.
 - **Formats.** NV12 (linear, BT.709 or BT.601, limited or full range) is
   converted by Gamescope's composite pass, so a VAAPI/NVENC encoder can take it
   without another copy. RGB formats (8-bit and 2101010) use any modifier the
