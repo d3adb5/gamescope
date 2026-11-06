@@ -133,7 +133,8 @@ gamescope --backend hermes --hermes-socket "$XDG_RUNTIME_DIR/hermes-1.sock" \
   frames, a whole refresh each. `GAMESCOPE_WSI_MAX_IMAGE_COUNT=2` in a game's
   environment has the WSI layer hold its swapchains to two, whatever it asks
   for; `GAMESCOPE_WSI_MIN_IMAGE_COUNT` is the lowest the layer offers. Ares sets
-  both to 2 on this route.
+  both to 2 when asked to. `GAMESCOPE_WSI_PRESENT_LOG=<file>` logs each present's
+  time, to time a game end to end.
 - **Formats.** NV12 (linear, BT.709 or BT.601, limited or full range) is
   converted by Gamescope's composite pass, so a VAAPI/NVENC encoder can take it
   without another copy. RGB formats (8-bit and 2101010) use any modifier the
