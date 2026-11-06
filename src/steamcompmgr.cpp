@@ -2037,9 +2037,42 @@ void MouseCursor::UpdatePosition()
 	wlserver_unlock();
 }
 
+// Chromium hit tests (0,0) until it has seen the pointer inside the page, and the corner is outside it, so Steam's top
+// bar stays hovered. The reset on focus goes out too early for the page: move in and out again once it can see that.
+static uint64_t s_ulSteamHoverNudgeTime = 0;
+static bool s_bSteamHoverNudgeInside = false;
+
+static void steam_hover_nudge( steamcompmgr_win_t *window )
+{
+	if ( !s_ulSteamHoverNudgeTime || get_time_in_nanos() < s_ulSteamHoverNudgeTime )
+		return;
+
+	s_ulSteamHoverNudgeTime = 0;
+	if ( !window || !window_wants_no_focus_when_mouse_hidden( window ) || !wlserver.bCursorHidden )
+		return;
+
+	const int nWidth = window->GetGeometry().nWidth;
+	const int nHeight = window->GetGeometry().nHeight;
+
+	wlserver_lock();
+	if ( !s_bSteamHoverNudgeInside )
+	{
+		wlserver_fake_mouse_pos( nWidth * 15 / 16, nHeight * 15 / 16 );
+		s_bSteamHoverNudgeInside = true;
+		s_ulSteamHoverNudgeTime = get_time_in_nanos() + 50'000'000ul;
+	}
+	else
+	{
+		wlserver_fake_mouse_pos( nWidth - 1, nHeight - 1 );
+		s_bSteamHoverNudgeInside = false;
+	}
+	wlserver_unlock();
+}
+
 void MouseCursor::checkSuspension()
 {
 	getTexture();
+	steam_hover_nudge( m_ctx->focus.inputFocusWindow );
 
 	if ( ShouldDrawCursor() )
 	{
@@ -5570,6 +5603,8 @@ determine_and_apply_focus( global_focus_t *pFocus )
 				wlserver_mousewarp( pFocus->inputFocusWindow->GetGeometry().nWidth / 2, pFocus->inputFocusWindow->GetGeometry().nHeight / 2, 0, true );
 				wlserver_fake_mouse_pos( pFocus->inputFocusWindow->GetGeometry().nWidth - 1, pFocus->inputFocusWindow->GetGeometry().nHeight - 1 );
 				wlserver_unlock();
+				s_bSteamHoverNudgeInside = false;
+				s_ulSteamHoverNudgeTime = get_time_in_nanos() + 250'000'000ul;
 			}
 			else if ( pFocus->inputFocusWindow->GetFocus()->bResetToCenter )
 			{
