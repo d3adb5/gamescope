@@ -1886,6 +1886,17 @@ namespace GamescopeWSILayer {
       const vkroots::VkQueueDispatch & pDispatch,
             VkQueue                    queue,
       const VkPresentInfoKHR*          pPresentInfo) {
+      // GAMESCOPE_WSI_PRESENT_LOG=<file>: "count CLOCK_MONOTONIC ns" per present, to time a real game end to end.
+      static FILE *s_presentLog = []() -> FILE* {
+        const char *path = getenv("GAMESCOPE_WSI_PRESENT_LOG");
+        return path ? fopen(path, "ae") : nullptr;
+      }();
+      if (s_presentLog) {
+        static std::atomic<uint64_t> s_presentCount = { 0 };
+        fprintf(s_presentLog, "%" PRIu64 " %" PRIu64 "\n", s_presentCount++, getTimeMonotonic());
+        fflush(s_presentLog);
+      }
+
       VkPresentInfoKHR presentInfo = *pPresentInfo;
 
       auto pPresentTimes = vkroots::FindInChain<const VkPresentTimesInfoGOOGLE>(&presentInfo);
