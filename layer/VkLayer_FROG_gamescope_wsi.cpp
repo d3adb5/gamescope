@@ -1595,6 +1595,10 @@ namespace GamescopeWSILayer {
       uint32_t minImageCount = swapchainInfo.minImageCount;
       if (getEnsureMinImageCount())
         minImageCount = std::max(getMinImageCount(), minImageCount);
+      // Games choose their own count. Under FIFO each image past two queues a finished frame, which is a
+      // whole refresh of latency, and gamescope releases images as soon as it composites them.
+      if (auto maxCount = parseEnv<uint32_t>("GAMESCOPE_WSI_MAX_IMAGE_COUNT"); maxCount && *maxCount >= 2)
+        minImageCount = std::min(*maxCount, minImageCount);
       swapchainInfo.minImageCount = minImageCount;
 
       fprintf(stderr, "[Gamescope WSI] Creating swapchain for xid: 0x%0x - oldSwapchain: %p - provided minImageCount: %u - minImageCount: %u - format: %s - colorspace: %s - flip: %s\n",
